@@ -5,6 +5,11 @@
  *=================================================================*/
 #include <math.h>
 #include "mex.h"
+#include <queue>
+#include <map>
+#include <iostream>
+#include <fstream>
+#include "node.h"
 
 /* Input Arguments */
 #define	MAP_IN                  prhs[0]
@@ -31,6 +36,110 @@
 #endif
 
 #define NUMOFDIRS 8
+
+
+static bool heuristic_generated = false;
+static bool path_found = false;
+static int* heuristic_map = NULL;
+
+struct cmpNode {
+    bool operator()(const Node& a, const Node& b) const {
+        return a.value > b.value;
+    }
+};
+
+void save_djikstra(int x_size, int y_size)
+{
+    std::cout << "saving" << std::endl;
+    std::ofstream myfile;
+    myfile.open ("example.txt");
+    for (int i = 0; i < x_size; i++)
+    {
+        for (int j = 0; j < y_size; j++)
+        {
+            char buffer[6];
+            int n;
+            if (heuristic_map[GETMAPINDEX(i,j,x_size,y_size)] > 100000)
+                n = sprintf(buffer, "%d", 0);
+            else n = sprintf(buffer, "%d", heuristic_map[GETMAPINDEX(i,j,x_size,y_size)]);
+            myfile << buffer;
+            if (j < y_size-1) myfile << ",";
+            else myfile << "\n";
+        }
+    }
+    myfile.close();
+    return;
+}
+
+void djikstra(double *map, int x_size, int y_size, int target_steps, double* target_traj, int collision_thresh)
+{
+    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+    heuristic_map = new int[x_size*y_size];
+    std::priority_queue<Node, std::vector<Node>, cmpNode> pq;
+
+    for (int i = 0; i < x_size; i++)
+    {
+        for (int j = 0; j < y_size; j++)
+            heuristic_map[GETMAPINDEX(i,j,x_size,y_size)] = INT_MAX;
+    }
+    for (int i = 0; i < target_steps; i++)
+    {
+        heuristic_map[GETMAPINDEX((int) target_traj[i], (int) target_traj[i + target_steps], x_size, y_size)] = 0;
+        int cost = 0;
+        for (int dir = 0; dir < NUMOFDIRS; dir++)
+        {
+            int newx = (int) target_traj[i] + dX[dir];
+            int newy = (int) target_traj[i + target_steps] + dY[dir];
+            if ((newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size) &&
+                ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
+                ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh) &&
+                heuristic_map[GETMAPINDEX(newx, newy, x_size, y_size)] > map[GETMAPINDEX((int) target_traj[i], (int) target_traj[i + target_steps], x_size, y_size)] + cost)
+            {
+                Node new_node;
+                new_node.x = newx;
+                new_node.y = newy;
+                new_node.value = map[GETMAPINDEX(newx,newy,x_size,y_size)] + cost;
+                pq.push(new_node);
+            }
+        }
+    }
+    std::cout << "running djikstra" << std::endl;
+    int count = 0;
+    while (!pq.empty())
+    {
+        count++;
+        bool bad_node = true;
+        Node curr_node;
+        do {
+            curr_node = pq.top();
+            pq.pop();
+            if (heuristic_map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)] > curr_node.value +
+                map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)])
+                bad_node = false;
+        } while (bad_node && !pq.empty());
+        heuristic_map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)] = curr_node.value;
+        int cost = curr_node.value;
+        for (int dir = 0; dir < NUMOFDIRS; dir++)
+        {
+            int newx = curr_node.x + dX[dir];
+            int newy = curr_node.y + dY[dir];
+            if ((newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size) &&
+                ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
+                ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh) &&
+                heuristic_map[GETMAPINDEX(newx, newy, x_size, y_size)] > map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)] + cost)
+            {
+                Node new_node;
+                new_node.x = newx;
+                new_node.y = newy;
+                new_node.value = map[GETMAPINDEX(newx,newy,x_size,y_size)] + cost;
+                pq.push(new_node);
+            }
+        }
+    }
+    save_djikstra(x_size, y_size);
+    return;
+}
 
 static void planner(
         double*	map,
@@ -85,7 +194,8 @@ static void planner(
     robotposeY = robotposeY + bestY;
     action_ptr[0] = robotposeX;
     action_ptr[1] = robotposeY;
-    
+    std::cout << "djikstra" << std::endl;
+    djikstra(map, x_size, y_size, target_steps, target_traj, collision_thresh);
     return;
 }
 
