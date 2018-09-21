@@ -5,8 +5,8 @@ function[caught, time, numofmoves, pathcost] = runtest(problemfile)
 close all;
 
 %draw the environment
-% figure('units','normalized','outerposition',[0 0 1 1]);
-% imagesc(envmap'); axis square; colorbar; colormap jet; hold on;
+figure('units','normalized','outerposition',[0 0 1 1]);
+imagesc(envmap'); axis square; colorbar; colormap jet; hold on;
 
 %current positions of the target and robot
 time = 0;
@@ -27,8 +27,8 @@ if (hr ~= -1)
 end
 % hr = text(robotpos(1), robotpos(2), 'R', 'Color', 'g', 'FontWeight', 'bold');
 % ht = text(targetpos(1), targetpos(2), 'T', 'Color', 'm', 'FontWeight', 'bold');
-% hr = scatter(robotpos(1), robotpos(2), 10, 'g', 'filled');
-% ht = scatter(targetpos(1), targetpos(2), 10, 'm', 'filled');
+hr = scatter(robotpos(1), robotpos(2), 10, 'g', 'filled');
+ht = scatter(targetpos(1), targetpos(2), 10, 'm', 'filled');
 
 pause(1.0);
 
@@ -84,8 +84,8 @@ while (true)
     end
 %     hr = text(robotpos(1), robotpos(2), 'R', 'Color', 'g', 'FontWeight', 'bold');
 %     ht = text(targetpos(1), targetpos(2), 'T', 'Color', 'm', 'FontWeight', 'bold');
-    % hr = scatter(robotpos(1), robotpos(2), 10, 'g', 'filled');
-    % ht = scatter(targetpos(1), targetpos(2), 10, 'm', 'filled');
+    hr = scatter(robotpos(1), robotpos(2), 10, 'g', 'filled');
+    ht = scatter(targetpos(1), targetpos(2), 10, 'm', 'filled');
     pause(0.0001);
     
     % check if target is caught
