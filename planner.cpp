@@ -9,6 +9,7 @@
 #include <map>
 #include <iostream>
 #include <fstream>
+#include <chrono>
 #include "node.h"
 
 /* Input Arguments */
@@ -40,14 +41,18 @@
 
 static bool heuristic_generated = false;
 static bool path_found = false;
-// static int* heuristic_map = NULL;
 static std::map<std::pair<int,int>, int> heuristic_map;
+static std::map<std::pair<int,int>, Node> a_star_closed_map;
+static int path_idx = 0;
+static std::vector<Node> path;
 
 struct cmpNode {
     bool operator()(const Node& a, const Node& b) const {
         return a.value > b.value;
     }
 };
+
+static std::priority_queue<Node, std::vector<Node>, cmpNode> prior_q;
 
 void save_djikstra(int x_size, int y_size)
 {
@@ -76,7 +81,6 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
 {
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
-    // heuristic_map = new int[x_size*y_size];
     std::priority_queue<Node, std::vector<Node>, cmpNode> pq;
     std::pair<std::map<std::pair<int,int>, int>::iterator, bool> result;
     for (int i = 0; i < x_size; i++)
@@ -84,27 +88,19 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
         for (int j = 0; j < y_size; j++)
         {
             result = heuristic_map.insert(std::pair<std::pair<int,int>, int>(std::make_pair(i,j), INT_MAX));
-            // heuristic_map[GETMAPINDEX(i,j,x_size,y_size)] = INT_MAX;
-            // std::cout << "map index = " << GETMAPINDEX(i,j,x_size,y_size) << std::endl;
         }
     }
     for (int i = 0; i < target_steps; i++)
     {
-        // heuristic_map[GETMAPINDEX((int) target_traj[i], (int) target_traj[i + target_steps], x_size, y_size)] = 0;
-        // result = heuristic_map.insert(std::pair<std::pair<int,int>, int>(std::make_pair((int) target_traj[i], (int) target_traj[i + target_steps]), 0));
         heuristic_map[std::make_pair((int) target_traj[i], (int) target_traj[i + target_steps])] = 0;
-        // std::cout << "spot = " << heuristic_map.at(std::make_pair((int) target_traj[i], (int) target_traj[i + target_steps])) << std::endl;
         int cost = 0;
         for (int dir = 0; dir < NUMOFDIRS; dir++)
         {
             int newx = (int) target_traj[i] + dX[dir];
             int newy = (int) target_traj[i + target_steps] + dY[dir];
-            // std::cout << "heuristic_map = " << heuristic_map.at(std::make_pair(newx,newy)) << std::endl;
-            // std::cout << "cost = " << map[GETMAPINDEX((int) target_traj[i], (int) target_traj[i + target_steps], x_size, y_size)] + cost << std::endl;
             if ((newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size) &&
                 ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
                 ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh) &&
-                // heuristic_map[GETMAPINDEX(newx, newy, x_size, y_size)] > map[GETMAPINDEX((int) target_traj[i], (int) target_traj[i + target_steps], x_size, y_size)] + cost)
                 (heuristic_map.at(std::make_pair(newx,newy)) > map[GETMAPINDEX((int) target_traj[i], (int) target_traj[i + target_steps], x_size, y_size)] + cost))
             {
                 Node new_node;
@@ -112,7 +108,6 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
                 new_node.y = newy;
                 new_node.value = map[GETMAPINDEX(newx,newy,x_size,y_size)] + cost;
                 pq.push(new_node);
-                // std::cout << "pq.size() = " << (int) pq.size() << std::endl;
             }
         }
     }
@@ -126,19 +121,13 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
         do {
             curr_node = pq.top();
             pq.pop();
-            // if (heuristic_map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)] > curr_node.value +
-            // if (heuristic_map.count(std::make_pair(curr_node.x, curr_node.y)) == 0)// &&
             if (heuristic_map.count(std::make_pair(curr_node.x, curr_node.y)) > 0 &&
                 heuristic_map.at(std::make_pair(curr_node.x, curr_node.y)) > curr_node.value +
                 map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)])
                 bad_node = false;
         } while (bad_node && !pq.empty());
-        // heuristic_map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)] = curr_node.value;
-        // result = heuristic_map.insert(std::pair<std::pair<int,int>,int>(std::make_pair(curr_node.x, curr_node.y), curr_node.value));
         heuristic_map[std::make_pair(curr_node.x, curr_node.y)] = curr_node.value;
         int cost = curr_node.value;
-        // std::cout << "result = " << result.second << std::endl;
-        // std::cout << "pq.size() = " << (int) pq.size() << std::endl;
         for (int dir = 0; dir < NUMOFDIRS; dir++)
         {
             int newx = curr_node.x + dX[dir];
@@ -147,22 +136,35 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
                 ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
                 ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh) &&
                 heuristic_map.count(std::make_pair(newx,newy)) > 0 &&
-                // heuristic_map[GETMAPINDEX(newx, newy, x_size, y_size)] > map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)] + cost)
                 (heuristic_map.at(std::make_pair(newx,newy)) > map[GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)] + cost))
             {
                 Node new_node;
                 new_node.x = newx;
                 new_node.y = newy;
                 new_node.value = map[GETMAPINDEX(newx,newy,x_size,y_size)] + cost;
-                // std::cout << "new val = " << new_node.value << std::endl;
                 pq.push(new_node);
             }
         }
     }
-    std::cout << "done with djikstra" << std::endl;
-    // save_djikstra(x_size, y_size);
     return;
 }
+
+void extract_path(int x, int y, int robotposeX, int robotposeY, int x_size, int y_size)
+{
+    Node curr_node;
+    curr_node = a_star_closed_map.at(std::make_pair(x,y));
+    while ((double)sqrt(((curr_node.x-robotposeX)*(curr_node.x-robotposeX) + (curr_node.y-robotposeY)*(curr_node.y-robotposeY))) > 0.5)
+    {
+        // std::cout << "curr_node = " << curr_node.x << ", " << curr_node.y << ", " << curr_node.value << std::endl;
+        path.push_back(curr_node);
+        curr_node = a_star_closed_map.at(std::make_pair(curr_node.parent_x,curr_node.parent_y));
+    }
+    // std::cout << "path size = " << (int) path.size() << std::endl;
+    path_idx = ((int) path.size()) - 1;
+    // std::cout << "path idx = " << path_idx << std::endl;
+    return;
+}
+
 
 static void planner(
         double*	map,
@@ -179,84 +181,158 @@ static void planner(
         double* action_ptr
         )
 {
-    if (!heuristic_generated)
-    {
-        std::cout << "djikstra" << std::endl;
-        djikstra(map, x_size, y_size, target_steps, target_traj, collision_thresh);
-        heuristic_generated = true;
-    }
-
+    auto now = std::chrono::system_clock::now();
+    auto now_ms = std::chrono::time_point_cast<std::chrono::seconds>(now);
+    
+    auto value = now_ms.time_since_epoch();
+    int duration = value.count();
     // 8-connected grid
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
     
-    // for now greedily move towards the final target position,
-    // but this is where you can put your planner
-
     int goalposeX = (int) target_traj[target_steps-1];
     int goalposeY = (int) target_traj[target_steps-1+target_steps];
     // printf("robot: %d %d;\n", robotposeX, robotposeY);
     // printf("goal: %d %d;\n", goalposeX, goalposeY);
 
-    int bestX = 0, bestY = 0; // robot will not move if greedy action leads to collision
-    double olddisttotarget = (double)sqrt(((robotposeX-goalposeX)*(robotposeX-goalposeX) + (robotposeY-goalposeY)*(robotposeY-goalposeY)));
-    double disttotarget;
-    for(int dir = 0; dir < NUMOFDIRS; dir++)
-    {
-        int newx = robotposeX + dX[dir];
-        int newy = robotposeY + dY[dir];
+    int dirx = robotposeX;
+    int diry = robotposeY;
 
-        if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size)
+    int tempx = robotposeX;
+    int tempy = robotposeY;
+    // Node node = Node(tempx, tempy, ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]), robotposeX, robotposeY,
+        // ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]), 0);
+    Node node;
+    node.x = tempx;
+    node.y = tempy;
+    node.value = ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]);
+    node.parent_x = robotposeX;
+    node.parent_y = robotposeY;
+    node.g_value = ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]);
+    node.time = curr_time;
+    // std::cout << "running " << std::endl;
+    // std::cout << "heuristic_generated = " << heuristic_generated << std::endl;
+    if (!heuristic_generated)
+    {
+        std::cout << "djikstra" << std::endl;
+        djikstra(map, x_size, y_size, target_steps, target_traj, collision_thresh);
+        heuristic_generated = true;
+        prior_q.push(node);
+    }
+    // std::cout << "planning " << std::endl;
+    int cost = heuristic_map.at(std::make_pair(robotposeX, robotposeY));
+    int iter_count = 0;
+    std::pair<std::map<std::pair<int,int>, Node>::iterator, bool> result;
+    if (!path_found)
+    {
+        std::cout << "planning " << std::endl;
+        while (!path_found && (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) > 0.5)
         {
-            if (((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh))  //if free
-            {
-                disttotarget = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
-                if(disttotarget < olddisttotarget)
+            iter_count++;
+            bool bad_node = true;
+            Node curr_node;
+            do {
+                curr_node = prior_q.top();
+                prior_q.pop();
+                // if (a_star_closed_map.count(GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)) == 0)
+                if (a_star_closed_map.count(std::make_pair(curr_node.x, curr_node.y)) == 0)
                 {
-                    olddisttotarget = disttotarget;
-                    bestX = dX[dir];
-                    bestY = dY[dir];
+                    bad_node = false;
+                    break;
+                }
+            } while (bad_node && !prior_q.empty());
+            // std::pair<std::map<int, Node>::iterator, bool> result;
+            // result = a_star_closed_map.insert(std::pair<int, Node>(GETMAPINDEX(curr_node.x,curr_node.y,x_size,y_size), curr_node));
+            result = a_star_closed_map.insert(std::pair<std::pair<int,int>, Node>(std::make_pair(curr_node.x,curr_node.y), curr_node));
+            for (int dir = 0; dir < NUMOFDIRS; dir++)
+            {
+                int newx = curr_node.x + dX[dir];
+                int newy = curr_node.y + dY[dir];
+                if ((newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size) &&
+                    ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
+                    ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh) &&
+                    a_star_closed_map.count(std::make_pair(newx,newy)) == 0)
+                {
+                    Node new_node;
+                    new_node.x = newx;
+                    new_node.y = newy;
+                    new_node.parent_x = curr_node.x;
+                    new_node.parent_y = curr_node.y;
+                    new_node.g_value = ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)]) + curr_node.g_value;
+                    int h;
+                    if (heuristic_map.count(std::make_pair(newx,newy)) > 0)
+                    {
+                        int h1 = heuristic_map.at(std::make_pair(newx,newy));
+                        int h2 = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
+                        if (h1 >= h2)
+                        // if (true)
+                        {
+                            h = h1;
+                            // std::cout << "h1" << std::endl;
+                        }
+                        else 
+                        {
+                            h = h2;
+                            // std::cout << "h2" << std::endl;
+                        }
+                    }
+                    else h = INT_MAX;
+                    new_node.value = new_node.g_value + 1000 * h;
+                    new_node.time = curr_node.time + 1;
+                    prior_q.push(new_node);
+                    // std::cout << "new node = " << newx << ", " << newy << ", " << curr_node.time+1 << ", " << new_node.value << std::endl;
+                }
+            }
+            tempx = curr_node.x;
+            tempy = curr_node.y;
+            std::cout << "curr pose = " << tempx << ", " << tempy << ", " << curr_node.time << std::endl;
+            std::cout << "goal pose = " << goalposeX << ", " << goalposeY << std::endl;
+            std::cout << "end condition = " << (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) << std::endl;
+            // if ((double)sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) < 0.5 || path_found)
+            // if (collided())
+            if ((double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) < 0.5 || path_found)
+            {
+
+                extract_path(tempx, tempy, robotposeX, robotposeY, x_size, y_size);
+                path_found = true;
+                printf("goal: %d %d;\n", goalposeX, goalposeY);
+            }
+        }
+    }
+    // std::cout << "path found = " << path_found << std::endl;
+    if (path_found && path_idx > 0)
+    {
+        Node next_node;
+        next_node = path[path_idx];
+        path_idx--;
+        // std::cout << "curr pose = " << robotposeX << ", " << robotposeY << std::endl;
+        // std::cout << "next pose = " << next_node.x << ", " << next_node.y << std::endl;
+        action_ptr[0] = next_node.x;
+        action_ptr[1] = next_node.y;
+    }
+    else
+    {
+        for(int dir = 0; dir < NUMOFDIRS; dir++)
+        {
+            int newx = robotposeX + dX[dir];
+            int newy = robotposeY + dY[dir];
+            if ((newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size) &&
+                ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
+                ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh)) 
+            {
+                if (heuristic_map.count(std::make_pair(newx,newy)) > 0 &&
+                    heuristic_map.at(std::make_pair(newx,newy)) < cost)
+                {
+                    cost = heuristic_map.at(std::make_pair(newx,newy));
+                    dirx = newx;
+                    diry = newy;
                 }
             }
         }
+        // std::cout << "dir = " << dirx << ", " << diry << std::endl;
+        action_ptr[0] = dirx;
+        action_ptr[1] = diry;
     }
-    // int cost = heuristic_map[GETMAPINDEX(robotposeX, robotposeY, x_size, y_size)];
-    int cost = heuristic_map.at(std::make_pair(robotposeX, robotposeY));
-    int dirx = robotposeX;
-    int diry = robotposeY;
-    // std::cout << "cost = " << cost << std::endl;
-    for(int dir = 0; dir < NUMOFDIRS; dir++)
-    {
-        int newx = robotposeX + dX[dir];
-        int newy = robotposeY + dY[dir];
-        // std::cout << "newcost = " << heuristic_map[GETMAPINDEX(newx, newy, x_size, y_size)] << std::endl;
-        // std::cout << "newcost = " << heuristic_map.at(std::make_pair(newx,newy)) << std::endl;
-        if ((newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size) &&
-            ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
-            ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh)) 
-        {
-            // std::cout << "newcost2 = " << heuristic_map.at(std::make_pair(newx,newy)) << std::endl;
-            // if (heuristic_map[GETMAPINDEX(newx, newy, x_size, y_size)] < cost)
-            if (heuristic_map.count(std::make_pair(newx,newy)) > 0 &&
-                heuristic_map.at(std::make_pair(newx,newy)) < cost)
-            {
-                // std::cout << "newcost3 = " << heuristic_map.at(std::make_pair(newx,newy)) << std::endl;
-                // std::cout << "dir = " << newx << ", " << newy << std::endl;
-                // cost = heuristic_map[GETMAPINDEX(newx, newy, x_size, y_size)];
-                cost = heuristic_map.at(std::make_pair(newx,newy));
-                dirx = newx;
-                diry = newy;
-            }
-        }
-    }
-    std::cout << "dir = " << dirx << ", " << diry << std::endl;
-    action_ptr[0] = dirx;
-    action_ptr[1] = diry;
-    // robotposeX = robotposeX + bestX;
-    // robotposeY = robotposeY + bestY;
-    // action_ptr[0] = robotposeX;
-    // action_ptr[1] = robotposeY;
-    std::cout << "robotpose = " << robotposeX << ", " << robotposeY << std::endl;
     return;
 }
 
