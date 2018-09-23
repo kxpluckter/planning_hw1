@@ -10,6 +10,7 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <time.h>
 #include "node.h"
 
 /* Input Arguments */
@@ -45,6 +46,7 @@ static std::map<std::pair<int,int>, int> heuristic_map;
 static std::map<std::pair<int,int>, Node> a_star_closed_map;
 static int path_idx = 0;
 static std::vector<Node> path;
+time_t start_time;
 
 struct cmpNode {
     bool operator()(const Node& a, const Node& b) const {
@@ -111,7 +113,7 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
             }
         }
     }
-    std::cout << "running djikstra" << std::endl;
+    // std::cout << "running djikstra" << std::endl;
     int count = 0;
     while (!pq.empty())
     {
@@ -165,6 +167,27 @@ void extract_path(int x, int y, int robotposeX, int robotposeY, int x_size, int 
     return;
 }
 
+bool is_finished(int x, int y, int plan_time, int curr_time, int target_steps, const double* target_traj)
+{
+    int time_diff = difftime(time(0), start_time);
+    if (target_steps -1 > curr_time + plan_time + time_diff)
+    {
+        int target_x = target_traj[curr_time+time_diff+plan_time];
+        int target_y = target_traj[target_steps+time_diff+plan_time+curr_time];
+        // std::cout << "end condition = " << (double) sqrt(((x-target_x)*(x-target_x) + (y-target_y)*(y-target_y))) << std::endl;
+        // std::cout << "goal pose = " << target_x << ", " << target_y << std::endl;
+
+        if ((double) sqrt(((x-target_x)*(x-target_x) + (y-target_y)*(y-target_y))) < 0.5)// &&
+            // curr_time == (target_steps + time_diff))
+            return true;
+        else return false;
+    } else
+    {
+        // std::cout << "too slow" << std::endl;
+      return false;  
+    } 
+}
+
 
 static void planner(
         double*	map,
@@ -181,11 +204,14 @@ static void planner(
         double* action_ptr
         )
 {
+    start_time = time(0);
     auto now = std::chrono::system_clock::now();
     auto now_ms = std::chrono::time_point_cast<std::chrono::seconds>(now);
     
     auto value = now_ms.time_since_epoch();
+    double seconds_since_start = difftime( time(0), start_time);
     int duration = value.count();
+    int intial_dur = value.count();
     // 8-connected grid
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
@@ -200,6 +226,8 @@ static void planner(
 
     int tempx = robotposeX;
     int tempy = robotposeY;
+    duration = value.count();
+    // std::cout << "duration = " << duration - intial_dur << std::endl;
     // Node node = Node(tempx, tempy, ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]), robotposeX, robotposeY,
         // ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]), 0);
     Node node;
@@ -209,7 +237,9 @@ static void planner(
     node.parent_x = robotposeX;
     node.parent_y = robotposeY;
     node.g_value = ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]);
-    node.time = curr_time;
+    node.time = 0;
+    // node.visited = 1;
+    // node.time = curr_time;
     // std::cout << "running " << std::endl;
     // std::cout << "heuristic_generated = " << heuristic_generated << std::endl;
     if (!heuristic_generated)
@@ -218,7 +248,12 @@ static void planner(
         djikstra(map, x_size, y_size, target_steps, target_traj, collision_thresh);
         heuristic_generated = true;
         prior_q.push(node);
+        duration = value.count();
+        // seconds_since_start = difftime( time(0), start);
+        // std::cout << "seconds_since_start = " << seconds_since_start << std::endl;
+        // std::cout << "duration = " << duration - intial_dur << std::endl;
     }
+
     // std::cout << "planning " << std::endl;
     int cost = heuristic_map.at(std::make_pair(robotposeX, robotposeY));
     int iter_count = 0;
@@ -227,8 +262,14 @@ static void planner(
     {
         std::cout << "planning " << std::endl;
         while (!path_found && (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) > 0.5)
+        // while (iter_count < 600 && !path_found && (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) > 0.5)
         {
+            duration = value.count();
+            // seconds_since_start = difftime( time(0), start);
+            // std::cout << "seconds_since_start = " << seconds_since_start << std::endl;
+            // std::cout << "duration = " << duration - intial_dur << std::endl;
             iter_count++;
+            // std::cout << iter_count << std::endl;
             bool bad_node = true;
             Node curr_node;
             do {
@@ -251,7 +292,8 @@ static void planner(
                 if ((newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size) &&
                     ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) &&
                     ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh) &&
-                    a_star_closed_map.count(std::make_pair(newx,newy)) == 0)
+                    // a_star_closed_map.count(std::make_pair(newx,newy)) == 0 &&
+                    curr_node.time < target_steps)
                 {
                     Node new_node;
                     new_node.x = newx;
@@ -263,8 +305,13 @@ static void planner(
                     if (heuristic_map.count(std::make_pair(newx,newy)) > 0)
                     {
                         int h1 = heuristic_map.at(std::make_pair(newx,newy));
-                        int h2 = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
-                        if (h1 >= h2)
+                        int time_diff = difftime(time(0), start_time);
+                        int target_x = target_traj[curr_time+time_diff+curr_node.time + 1];
+                        int target_y = target_traj[target_steps+time_diff+curr_node.time + 1 +curr_time];
+                        int h2 = (double)sqrt(((newx-target_x)*(newx-target_x) + (newy-target_y)*(newy-target_y)));
+                        // int h2 = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
+                        if (1.5*h1 >= h2)
+                        // if (h1 >= h2)
                         // if (true)
                         {
                             h = h1;
@@ -277,20 +324,35 @@ static void planner(
                         }
                     }
                     else h = INT_MAX;
-                    new_node.value = new_node.g_value + 1000 * h;
+                    new_node.value = new_node.g_value + 10 * h;
                     new_node.time = curr_node.time + 1;
-                    prior_q.push(new_node);
+
+                    if (a_star_closed_map.count(std::make_pair(newx,newy)) == 0)
+                    {
+                        prior_q.push(new_node);    
+                    } else
+                    {
+                        Node next_node;
+                        next_node = a_star_closed_map.at(std::make_pair(newx,newy));
+                        if (next_node.time != new_node.time) prior_q.push(new_node);
+                    }
+                    
                     // std::cout << "new node = " << newx << ", " << newy << ", " << curr_node.time+1 << ", " << new_node.value << std::endl;
                 }
             }
             tempx = curr_node.x;
             tempy = curr_node.y;
-            std::cout << "curr pose = " << tempx << ", " << tempy << ", " << curr_node.time << std::endl;
-            std::cout << "goal pose = " << goalposeX << ", " << goalposeY << std::endl;
-            std::cout << "end condition = " << (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) << std::endl;
+            int time_diff = difftime(time(0), start_time);
+            // std::cout << "curr pose = " << tempx << ", " << tempy << ", " << curr_node.time << std::endl;
+            // // std::cout << "goal pose = " << goalposeX << ", " << goalposeY << std::endl;
+            // // std::cout << "end condition = " << (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) << std::endl;
+            // std::cout << "time step = " << curr_node.time + time_diff << std::endl;
+            // std::cout << "robot time = " << curr_time + time_diff << std::endl;
+            // std::cout << "pq.size() = " << (int) prior_q.size() << std::endl;
             // if ((double)sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) < 0.5 || path_found)
             // if (collided())
-            if ((double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) < 0.5 || path_found)
+            if (is_finished(tempx, tempy, curr_node.time, curr_time, target_steps, target_traj) || path_found)
+            // if ((double)  sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) < 0.5 || path_found)
             {
 
                 extract_path(tempx, tempy, robotposeX, robotposeY, x_size, y_size);
@@ -298,6 +360,7 @@ static void planner(
                 printf("goal: %d %d;\n", goalposeX, goalposeY);
             }
         }
+
     }
     // std::cout << "path found = " << path_found << std::endl;
     if (path_found && path_idx > 0)
@@ -333,6 +396,7 @@ static void planner(
         action_ptr[0] = dirx;
         action_ptr[1] = diry;
     }
+    // std::cout << "broke for some reason" << std::endl;
     return;
 }
 
