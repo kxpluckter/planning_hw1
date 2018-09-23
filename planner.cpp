@@ -4,6 +4,7 @@
  *
  *=================================================================*/
 #include <math.h>
+#include <cmath>
 #include "mex.h"
 #include <queue>
 #include <map>
@@ -43,7 +44,8 @@
 static bool heuristic_generated = false;
 static bool path_found = false;
 static std::map<std::pair<int,int>, int> heuristic_map;
-static std::map<std::pair<int,int>, Node> a_star_closed_map;
+static std::map<std::pair<int,int>, int> twoDmap;
+static std::map<std::tuple<int,int,int>, Node> a_star_closed_map;
 static int path_idx = 0;
 static std::vector<Node> path;
 time_t start_time;
@@ -113,7 +115,6 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
             }
         }
     }
-    // std::cout << "running djikstra" << std::endl;
     int count = 0;
     while (!pq.empty())
     {
@@ -151,41 +152,39 @@ void djikstra(double *map, int x_size, int y_size, int target_steps, double* tar
     return;
 }
 
-void extract_path(int x, int y, int robotposeX, int robotposeY, int x_size, int y_size)
+void extract_path(int x, int y, int time, int robotposeX, int robotposeY, int x_size, int y_size)
 {
     Node curr_node;
-    curr_node = a_star_closed_map.at(std::make_pair(x,y));
+    // curr_node = a_star_closed_map.at(std::make_pair(x,y));
+    curr_node = a_star_closed_map.at(std::make_tuple(x,y,time));
+
     while ((double)sqrt(((curr_node.x-robotposeX)*(curr_node.x-robotposeX) + (curr_node.y-robotposeY)*(curr_node.y-robotposeY))) > 0.5)
     {
-        // std::cout << "curr_node = " << curr_node.x << ", " << curr_node.y << ", " << curr_node.value << std::endl;
         path.push_back(curr_node);
-        curr_node = a_star_closed_map.at(std::make_pair(curr_node.parent_x,curr_node.parent_y));
+        // curr_node = a_star_closed_map.at(std::make_pair(curr_node.parent_x,curr_node.parent_y));
+        curr_node = a_star_closed_map.at(std::make_tuple(curr_node.parent_x,curr_node.parent_y,curr_node.time-1));
     }
-    // std::cout << "path size = " << (int) path.size() << std::endl;
+
     path_idx = ((int) path.size()) - 1;
-    // std::cout << "path idx = " << path_idx << std::endl;
     return;
 }
 
 bool is_finished(int x, int y, int plan_time, int curr_time, int target_steps, const double* target_traj)
 {
     int time_diff = difftime(time(0), start_time);
+
     if (target_steps -1 > curr_time + plan_time + time_diff)
     {
+
         int target_x = target_traj[curr_time+time_diff+plan_time];
         int target_y = target_traj[target_steps+time_diff+plan_time+curr_time];
-        // std::cout << "end condition = " << (double) sqrt(((x-target_x)*(x-target_x) + (y-target_y)*(y-target_y))) << std::endl;
-        // std::cout << "goal pose = " << target_x << ", " << target_y << std::endl;
-
-        if ((double) sqrt(((x-target_x)*(x-target_x) + (y-target_y)*(y-target_y))) < 0.5)// &&
-            // curr_time == (target_steps + time_diff))
-            return true;
+        // std::cout << "curr pose = " << x << ", " << y << ", " << plan_time << std::endl;
+        // std::cout << "target = " << target_x << ", " << target_y << std::endl;
+        // std::cout << "dist = " << (double) sqrt(((x-target_x)*(x-target_x) + (y-target_y)*(y-target_y))) << std::endl;
+        if ((double) sqrt(((x-target_x)*(x-target_x) + (y-target_y)*(y-target_y))) < 0.5) return true;
         else return false;
-    } else
-    {
-        // std::cout << "too slow" << std::endl;
-      return false;  
-    } 
+
+    } else return false;
 }
 
 
@@ -205,31 +204,20 @@ static void planner(
         )
 {
     start_time = time(0);
-    auto now = std::chrono::system_clock::now();
-    auto now_ms = std::chrono::time_point_cast<std::chrono::seconds>(now);
-    
-    auto value = now_ms.time_since_epoch();
-    double seconds_since_start = difftime( time(0), start_time);
-    int duration = value.count();
-    int intial_dur = value.count();
+
     // 8-connected grid
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
     
     int goalposeX = (int) target_traj[target_steps-1];
     int goalposeY = (int) target_traj[target_steps-1+target_steps];
-    // printf("robot: %d %d;\n", robotposeX, robotposeY);
-    // printf("goal: %d %d;\n", goalposeX, goalposeY);
 
     int dirx = robotposeX;
     int diry = robotposeY;
 
     int tempx = robotposeX;
     int tempy = robotposeY;
-    duration = value.count();
-    // std::cout << "duration = " << duration - intial_dur << std::endl;
-    // Node node = Node(tempx, tempy, ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]), robotposeX, robotposeY,
-        // ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]), 0);
+
     Node node;
     node.x = tempx;
     node.y = tempy;
@@ -238,53 +226,58 @@ static void planner(
     node.parent_y = robotposeY;
     node.g_value = ((int)map[GETMAPINDEX(tempx,tempy,x_size,y_size)]);
     node.time = 0;
-    // node.visited = 1;
-    // node.time = curr_time;
-    // std::cout << "running " << std::endl;
-    // std::cout << "heuristic_generated = " << heuristic_generated << std::endl;
+    node.visited = 1;
+
     if (!heuristic_generated)
     {
-        std::cout << "djikstra" << std::endl;
+        // std::cout << "djikstra" << std::endl;
         djikstra(map, x_size, y_size, target_steps, target_traj, collision_thresh);
         heuristic_generated = true;
         prior_q.push(node);
-        duration = value.count();
-        // seconds_since_start = difftime( time(0), start);
-        // std::cout << "seconds_since_start = " << seconds_since_start << std::endl;
-        // std::cout << "duration = " << duration - intial_dur << std::endl;
     }
 
-    // std::cout << "planning " << std::endl;
     int cost = heuristic_map.at(std::make_pair(robotposeX, robotposeY));
     int iter_count = 0;
-    std::pair<std::map<std::pair<int,int>, Node>::iterator, bool> result;
+    // std::pair<std::map<std::pair<int,int>, Node>::iterator, bool> result;
+    std::pair<std::map<std::tuple<int,int,int>, Node>::iterator, bool> result;
     if (!path_found)
     {
-        std::cout << "planning " << std::endl;
-        while (!path_found && (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) > 0.5)
-        // while (iter_count < 600 && !path_found && (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) > 0.5)
+        // std::cout << "planning " << std::endl;
+        int plan_time = 0;
+        // while (!path_found && (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) > 0.5)
+        while (!path_found)// && is_finished(tempx, tempy, plan_time, curr_time, target_steps, target_traj))
+        // while (iter_count < 300 && !path_found && (double) sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) > 0.5)
         {
-            duration = value.count();
-            // seconds_since_start = difftime( time(0), start);
-            // std::cout << "seconds_since_start = " << seconds_since_start << std::endl;
-            // std::cout << "duration = " << duration - intial_dur << std::endl;
             iter_count++;
-            // std::cout << iter_count << std::endl;
             bool bad_node = true;
             Node curr_node;
             do {
                 curr_node = prior_q.top();
                 prior_q.pop();
-                // if (a_star_closed_map.count(GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size)) == 0)
-                if (a_star_closed_map.count(std::make_pair(curr_node.x, curr_node.y)) == 0)
+                // if (a_star_closed_map.count(std::make_pair(curr_node.x, curr_node.y)) == 0)
+                if (a_star_closed_map.count(std::make_tuple(curr_node.x, curr_node.y, curr_node.time)) == 0)
                 {
+                    twoDmap[std::make_pair(curr_node.x,curr_node.y)] += 1;
                     bad_node = false;
                     break;
-                }
+                } //else 
+                // {
+                //     Node next_node;
+                //     // next_node = a_star_closed_map.at(std::make_pair(curr_node.x,curr_node.y));
+                //     next_node = a_star_closed_map.at(std::make_pair(curr_node.x,curr_node.y,curr_node.time));
+                //     if (next_node.time != curr_node.time)
+                //     {
+                //         next_node.visited++;
+                //         a_star_closed_map[std::make_pair(curr_node.x, curr_node.y)] = next_node;
+                //         curr_node.visited = next_node.visited;
+                //         bad_node = false;
+                //         break;
+                //     }
+                // }
             } while (bad_node && !prior_q.empty());
-            // std::pair<std::map<int, Node>::iterator, bool> result;
-            // result = a_star_closed_map.insert(std::pair<int, Node>(GETMAPINDEX(curr_node.x,curr_node.y,x_size,y_size), curr_node));
-            result = a_star_closed_map.insert(std::pair<std::pair<int,int>, Node>(std::make_pair(curr_node.x,curr_node.y), curr_node));
+            // result = a_star_closed_map.insert(std::pair<std::pair<int,int>, Node>(std::make_pair(curr_node.x,curr_node.y), curr_node));
+            result = a_star_closed_map.insert(std::pair<std::tuple<int,int,int>, Node>(std::make_tuple(curr_node.x,curr_node.y,curr_node.time), curr_node));
+            twoDmap.insert(std::pair<std::pair<int,int>, int>(std::make_pair(curr_node.x,curr_node.y), 1));
             for (int dir = 0; dir < NUMOFDIRS; dir++)
             {
                 int newx = curr_node.x + dX[dir];
@@ -308,11 +301,11 @@ static void planner(
                         int time_diff = difftime(time(0), start_time);
                         int target_x = target_traj[curr_time+time_diff+curr_node.time + 1];
                         int target_y = target_traj[target_steps+time_diff+curr_node.time + 1 +curr_time];
-                        int h2 = (double)sqrt(((newx-target_x)*(newx-target_x) + (newy-target_y)*(newy-target_y)));
+                        int h2 = 0.5 * (double)sqrt(((newx-target_x)*(newx-target_x) + (newy-target_y)*(newy-target_y)));
                         // int h2 = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
-                        if (1.5*h1 >= h2)
+                        // if (1.5*h1 >= h2)
                         // if (h1 >= h2)
-                        // if (true)
+                        if (true)
                         {
                             h = h1;
                             // std::cout << "h1" << std::endl;
@@ -324,24 +317,33 @@ static void planner(
                         }
                     }
                     else h = INT_MAX;
-                    new_node.value = new_node.g_value + 10 * h;
+                    if (twoDmap.count(std::make_pair(newx,newy)) > 0)
+                        new_node.value = new_node.g_value + 100 * h + ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)]) * std::pow((double)twoDmap.at(std::make_pair(newx,newy)),2.0);
+                    else new_node.value = new_node.g_value + 100 * h;
                     new_node.time = curr_node.time + 1;
 
-                    if (a_star_closed_map.count(std::make_pair(newx,newy)) == 0)
+                    // if (a_star_closed_map.count(std::make_pair(newx,newy)) == 0)
+                    if (a_star_closed_map.count(std::make_tuple(newx,newy,new_node.time)) == 0)
                     {
                         prior_q.push(new_node);    
-                    } else
-                    {
-                        Node next_node;
-                        next_node = a_star_closed_map.at(std::make_pair(newx,newy));
-                        if (next_node.time != new_node.time) prior_q.push(new_node);
-                    }
+                    } //else
+                    // {
+                    //     Node next_node;
+                    //     next_node = a_star_closed_map.at(std::make_pair(newx,newy));
+                    //     if (next_node.time != new_node.time)
+                    //     {
+                    //         // new_node.visited = next_node.visited;
+                    //         // new_node.value += next_node.visited * 
+                    //         prior_q.push(new_node);
+                    //     }
+                    // }
                     
                     // std::cout << "new node = " << newx << ", " << newy << ", " << curr_node.time+1 << ", " << new_node.value << std::endl;
                 }
             }
             tempx = curr_node.x;
             tempy = curr_node.y;
+            plan_time = curr_node.time;
             int time_diff = difftime(time(0), start_time);
             // std::cout << "curr pose = " << tempx << ", " << tempy << ", " << curr_node.time << std::endl;
             // // std::cout << "goal pose = " << goalposeX << ", " << goalposeY << std::endl;
@@ -349,27 +351,25 @@ static void planner(
             // std::cout << "time step = " << curr_node.time + time_diff << std::endl;
             // std::cout << "robot time = " << curr_time + time_diff << std::endl;
             // std::cout << "pq.size() = " << (int) prior_q.size() << std::endl;
+            // std::cout << "h val = " << curr_node.value << std::endl;
             // if ((double)sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) < 0.5 || path_found)
             // if (collided())
             if (is_finished(tempx, tempy, curr_node.time, curr_time, target_steps, target_traj) || path_found)
             // if ((double)  sqrt(((tempx-goalposeX)*(tempx-goalposeX) + (tempy-goalposeY)*(tempy-goalposeY))) < 0.5 || path_found)
             {
 
-                extract_path(tempx, tempy, robotposeX, robotposeY, x_size, y_size);
+                extract_path(tempx, tempy, curr_node.time, robotposeX, robotposeY, x_size, y_size);
                 path_found = true;
-                printf("goal: %d %d;\n", goalposeX, goalposeY);
+                // printf("goal: %d %d;\n", goalposeX, goalposeY);
             }
         }
 
     }
-    // std::cout << "path found = " << path_found << std::endl;
     if (path_found && path_idx > 0)
     {
         Node next_node;
         next_node = path[path_idx];
         path_idx--;
-        // std::cout << "curr pose = " << robotposeX << ", " << robotposeY << std::endl;
-        // std::cout << "next pose = " << next_node.x << ", " << next_node.y << std::endl;
         action_ptr[0] = next_node.x;
         action_ptr[1] = next_node.y;
     }
@@ -396,7 +396,6 @@ static void planner(
         action_ptr[0] = dirx;
         action_ptr[1] = diry;
     }
-    // std::cout << "broke for some reason" << std::endl;
     return;
 }
 
